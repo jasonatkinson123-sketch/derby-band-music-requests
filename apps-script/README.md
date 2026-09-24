@@ -1,0 +1,1 @@
+Paste Code.gs into a standalone Google Apps Script project. Set Script Property ADMIN_KEY, deploy as a Web App that executes as you and is accessible to Anyone, then paste the /exec URL into ../config.js.
