@@ -1,5 +1,15 @@
 (() => {
-  const API_URL = (window.DERBY_MUSIC_CONFIG?.API_URL || '').trim();
+  const CONFIG = window.DERBY_MUSIC_CONFIG || {};
+  const API_URL = (CONFIG.API_URL || '').trim();
+  const GOOGLE_FORM_URL = (CONFIG.GOOGLE_FORM_URL || '').trim();
+  const GOOGLE_FORM_FIELDS = CONFIG.GOOGLE_FORM_FIELDS || {};
+  const FORM_MODE = Boolean(
+    GOOGLE_FORM_URL &&
+    GOOGLE_FORM_FIELDS.name &&
+    GOOGLE_FORM_FIELDS.grade &&
+    GOOGLE_FORM_FIELDS.piece &&
+    GOOGLE_FORM_FIELDS.instrument
+  );
   const INSTRUMENTS = ['Flute','Oboe','Bassoon','Clarinet','Bass Clarinet','Alto Saxophone','Tenor Saxophone','Baritone Saxophone','Trumpet','French Horn','Trombone','Baritone','Tuba','Electric Bass','Percussion','Mallets / Bells'];
   const SEED_PIECES = [
     {id:'dragon-slayer', title:'Dragon Slayer', grades:[6], active:true},
@@ -55,7 +65,7 @@
   }
   function renderStart(){
     state.grade=null;state.piece=null;state.instrument=null;
-    app.innerHTML=`<h2 class="screen-title">NEED REPLACEMENT MUSIC?</h2><p class="screen-subtitle">Choose your grade.</p><div class="grid grade-grid">${[6,7,8].map(g=>`<button class="pixel-button grade" data-grade="${g}"><strong>${g}</strong>GRADE</button>`).join('')}</div>${!API_URL?'<div class="notice">Demo mode: the live request queue is not connected yet.</div>':''}`;
+    app.innerHTML=`<h2 class="screen-title">NEED REPLACEMENT MUSIC?</h2><p class="screen-subtitle">Choose your grade.</p><div class="grid grade-grid">${[6,7,8].map(g=>`<button class="pixel-button grade" data-grade="${g}"><strong>${g}</strong>GRADE</button>`).join('')}</div>${(!API_URL&&!FORM_MODE)?'<div class="notice">Demo mode: requests are not connected yet.</div>':''}`;
     app.querySelectorAll('[data-grade]').forEach(b=>b.onclick=()=>{state.grade=Number(b.dataset.grade);renderName()});
   }
 
@@ -85,6 +95,16 @@
   }
 
   function submitRequest(){
+    if(FORM_MODE){
+      const url = new URL(GOOGLE_FORM_URL);
+      url.searchParams.set('usp','pp_url');
+      url.searchParams.set(GOOGLE_FORM_FIELDS.name,state.name);
+      url.searchParams.set(GOOGLE_FORM_FIELDS.grade,String(state.grade));
+      url.searchParams.set(GOOGLE_FORM_FIELDS.piece,state.piece.title);
+      url.searchParams.set(GOOGLE_FORM_FIELDS.instrument,state.instrument);
+      window.location.href = url.toString();
+      return;
+    }
     const ok=postForm({action:'request',name:state.name,grade:state.grade,piece:state.piece.title,pieceId:state.piece.id,instrument:state.instrument});
     app.innerHTML=`<div class="confirmation"><div class="confirm-icon">✓</div><h2>${ok?'REQUEST SENT!':'DEMO REQUEST SAVED'}</h2><p>${esc(state.piece.title)} — ${esc(state.instrument)}</p><p>Your replacement music will be ready at the next rehearsal.</p><button class="action primary" id="another">DONE</button></div>`;
     document.getElementById('another').onclick=()=>{state.name='';renderStart()};
@@ -95,7 +115,11 @@
     try{const data=await jsonp({action:'bootstrap'});if(data?.pieces?.length)state.pieces=data.pieces;}catch(e){console.warn(e)}
     renderStart();
   }
-  teacherButton.onclick=()=>{teacherDialog.showModal();renderTeacherLogin()};
+  if(FORM_MODE && !API_URL){
+    teacherButton.style.display='none';
+  } else {
+    teacherButton.onclick=()=>{teacherDialog.showModal();renderTeacherLogin()};
+  }
   teacherDialog.addEventListener('click',e=>{if(e.target===teacherDialog)teacherDialog.close()});
 
   function renderTeacherLogin(){
