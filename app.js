@@ -85,7 +85,7 @@
 
   function renderInstruments(){
     state.instrument=null;
-    app.innerHTML=`<button class="action secondary back" id="backPieces">← BACK</button><h2 class="screen-title">CHOOSE YOUR INSTRUMENT</h2><p class="screen-subtitle">Tap your instrument, then press SEND REQUEST.</p><div class="chip-row"><span class="chip">${esc(state.name)}</span><span class="chip">${esc(state.piece.title)}</span></div><div class="grid instrument-grid">${INSTRUMENTS.map(i=>`<button class="pixel-button instrument" data-instrument="${esc(i)}">${esc(i)}</button>`).join('')}</div><div class="send-dock" id="sendDock"><div id="selectedInstrument" class="selected-instrument">No instrument selected</div><button class="action primary send-request" id="sendRequest" disabled>SEND REQUEST</button></div>`;
+    app.innerHTML=`<button class="action secondary back" id="backPieces">← BACK</button><h2 class="screen-title">CHOOSE YOUR INSTRUMENT</h2><p class="screen-subtitle">Tap your instrument, then continue to the Google Form.</p><div class="chip-row"><span class="chip">${esc(state.name)}</span><span class="chip">${esc(state.piece.title)}</span></div><div class="grid instrument-grid">${INSTRUMENTS.map(i=>`<button class="pixel-button instrument" data-instrument="${esc(i)}">${esc(i)}</button>`).join('')}</div><div class="send-dock" id="sendDock"><div id="selectedInstrument" class="selected-instrument">No instrument selected</div><button class="action primary send-request" id="sendRequest" disabled>CONTINUE TO FORM</button></div>`;
     document.getElementById('backPieces').onclick=renderPieces;
     const sendButton=document.getElementById('sendRequest');
     app.querySelectorAll('[data-instrument]').forEach(b=>b.onclick=()=>{
@@ -106,29 +106,13 @@
   function submitRequest(){
     if(!state.instrument) return;
     if(FORM_MODE){
-      const form=document.createElement('form');
-      form.method='POST';
-      form.action=GOOGLE_FORM_URL.replace(/\/viewform(?:\?.*)?$/,'/formResponse');
-      form.target='writeTarget';
-      form.style.display='none';
-      const values={
-        [GOOGLE_FORM_FIELDS.name]:state.name,
-        [GOOGLE_FORM_FIELDS.grade]:String(state.grade),
-        [GOOGLE_FORM_FIELDS.piece]:state.piece.title,
-        [GOOGLE_FORM_FIELDS.instrument]:state.instrument
-      };
-      Object.entries(values).forEach(([name,value])=>{
-        const input=document.createElement('input');
-        input.type='hidden';
-        input.name=name;
-        input.value=value;
-        form.appendChild(input);
-      });
-      document.body.appendChild(form);
-      form.submit();
-      setTimeout(()=>form.remove(),1500);
-      app.innerHTML=`<div class="confirmation"><div class="confirm-icon">✓</div><h2>REQUEST SENT!</h2><p>${esc(state.piece.title)} — ${esc(state.instrument)}</p><p>Your replacement music will be ready at the next rehearsal.</p><button class="action primary" id="another">DONE</button></div>`;
-      document.getElementById('another').onclick=()=>{state.name='';renderStart()};
+      const url=new URL(GOOGLE_FORM_URL);
+      url.searchParams.set('usp','pp_url');
+      url.searchParams.set(GOOGLE_FORM_FIELDS.name,state.name);
+      url.searchParams.set(GOOGLE_FORM_FIELDS.grade,String(state.grade));
+      url.searchParams.set(GOOGLE_FORM_FIELDS.piece,state.piece.title);
+      url.searchParams.set(GOOGLE_FORM_FIELDS.instrument,state.instrument);
+      window.location.assign(url.toString());
       return;
     }
     const ok=postForm({action:'request',name:state.name,grade:state.grade,piece:state.piece.title,pieceId:state.piece.id,instrument:state.instrument});
