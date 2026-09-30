@@ -15,9 +15,9 @@ const SEED_PIECES = [
   ['tenth-planet','The Tenth Planet','7,8',true],
   ['shine','Shine','7,8',true],
   ['falcons-flight',"Falcon's Flight March",'7,8',true],
-  ['mechanical-monsters','Mechanical Monsters','7,8',true],
+  ['mechanical-monsters','Mechanical Monsters','6,7,8',true],
   ['wrath-mechanical','Wrath of the Mechanical Monsters','7,8',true],
-  ['tempest','The Tempest','7,8',true],
+  ['tempest','The Tempest','6,7,8',true],
   ['valiance','Valiance','7,8',true],
   ['engines-resistance','Engines of Resistance','7,8',true],
   ['conquer-kraken','To Conquer the Kraken','7,8',true],
@@ -28,11 +28,17 @@ function doGet(e) {
   try {
     const action = clean_(e.parameter.action || 'bootstrap', 40);
     let data;
-    if (action === 'bootstrap') data = { pieces: getPieces_() };
-    else if (action === 'requests') {
+    if (action === 'bootstrap') {
+      data = { pieces: getPieces_(false) };
+    } else if (action === 'adminPieces') {
+      requireAdmin_(e.parameter.key);
+      data = { pieces: getPieces_(true) };
+    } else if (action === 'requests') {
       requireAdmin_(e.parameter.key);
       data = { requests: getRequests_() };
-    } else data = { error: 'Unknown action' };
+    } else {
+      data = { error: 'Unknown action' };
+    }
     return output_(data, e.parameter.callback);
   } catch (err) {
     return output_({ error: String(err.message || err) }, e.parameter.callback);
@@ -45,7 +51,9 @@ function doPost(e) {
     const action = clean_(p.action, 40);
     if (action === 'request') addRequest_(p);
     else if (action === 'addPiece') { requireAdmin_(p.key); addPiece_(p); }
-    else if (action === 'removePiece') { requireAdmin_(p.key); removePiece_(p.id); }
+    else if (action === 'updatePiece') { requireAdmin_(p.key); updatePiece_(p); }
+    else if (action === 'setPieceActive') { requireAdmin_(p.key); setPieceActive_(p.id, p.active); }
+    else if (action === 'removePiece') { requireAdmin_(p.key); setPieceActive_(p.id, false); }
     else if (action === 'markPrinted') { requireAdmin_(p.key); markPrinted_(p.ids); }
     else throw new Error('Unknown action');
     return output_({ ok: true });
@@ -78,24 +86,30 @@ function setup_(ss) {
     pieces.getRange(2,1,rows.length,5).setValues(rows);
     pieces.setFrozenRows(1);
   }
+
   let requests = ss.getSheetByName(REQUESTS_SHEET);
   if (!requests) requests = ss.insertSheet(REQUESTS_SHEET);
   if (requests.getLastRow() === 0) {
     requests.appendRow(['id','timestamp','name','grade','piece','pieceId','instrument','status']);
     requests.setFrozenRows(1);
   }
+
   const starter = ss.getSheetByName('Sheet1');
   if (starter && ss.getSheets().length > 2) ss.deleteSheet(starter);
 }
 
-function getPieces_() {
+function getPieces_(includeInactive) {
   const sh = db_().getSheetByName(PIECES_SHEET);
   const values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
-  return values.slice(1).filter(r => r[3] !== false).map(r => ({
-    id: String(r[0]), title: String(r[1]),
-    grades: String(r[2]).split(',').map(Number).filter(Boolean), active: r[3] !== false
-  }));
+  return values.slice(1)
+    .filter(r => includeInactive || r[3] !== false)
+    .map(r => ({
+      id: String(r[0]),
+      title: String(r[1]),
+      grades: normalizeGrades_(r[2]),
+      active: r[3] !== false
+    }));
 }
 
 function getRequests_() {
@@ -103,39 +117,85 @@ function getRequests_() {
   const values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
   return values.slice(1).reverse().map(r => ({
-    id:String(r[0]), time:formatTime_(r[1]), name:String(r[2]), grade:String(r[3]),
-    piece:String(r[4]), pieceId:String(r[5]), instrument:String(r[6]), status:String(r[7] || 'OPEN')
+    id:String(r[0]),
+    time:formatTime_(r[1]),
+    name:String(r[2]),
+    grade:String(r[3]),
+    piece:String(r[4]),
+    pieceId:String(r[5]),
+    instrument:String(r[6]),
+    status:String(r[7] || 'OPEN')
   }));
 }
 
 function addRequest_(p) {
-  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
   try {
-    const name = clean_(p.name,60), grade = clean_(p.grade,2), piece = clean_(p.piece,120), pieceId = clean_(p.pieceId,100), instrument = clean_(p.instrument,80);
+    const name = clean_(p.name,60);
+    const grade = clean_(p.grade,2);
+    const piece = clean_(p.piece,120);
+    const pieceId = clean_(p.pieceId,100);
+    const instrument = clean_(p.instrument,80);
     if (!name || !['6','7','8'].includes(grade) || !piece || !instrument) throw new Error('Missing request information');
     const id = Utilities.getUuid().slice(0,8).toUpperCase();
     db_().getSheetByName(REQUESTS_SHEET).appendRow([id,new Date(),name,grade,piece,pieceId,instrument,'OPEN']);
-  } finally { lock.releaseLock(); }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function addPiece_(p) {
-  const title = clean_(p.title,120), grades = clean_(p.grades,20), id = clean_(p.id,100) || ('piece-' + Date.now());
-  if (!title || !grades) throw new Error('Title and grades are required');
-  db_().getSheetByName(PIECES_SHEET).appendRow([id,title,grades,true,new Date()]);
+  const title = clean_(p.title,120);
+  const grades = normalizeGrades_(p.grades);
+  const id = clean_(p.id,100) || ('piece-' + Date.now());
+  if (!title || !grades.length) throw new Error('Title and at least one grade are required');
+  const sh = db_().getSheetByName(PIECES_SHEET);
+  const values = sh.getDataRange().getValues();
+  if (values.slice(1).some(r => String(r[0]) === id)) throw new Error('Piece already exists');
+  sh.appendRow([id,title,grades.join(','),true,new Date()]);
 }
 
-function removePiece_(id) {
-  id = clean_(id,100); if (!id) throw new Error('Piece id required');
-  const sh = db_().getSheetByName(PIECES_SHEET), values = sh.getDataRange().getValues();
-  for (let i=1;i<values.length;i++) if (String(values[i][0]) === id) { sh.getRange(i+1,4).setValue(false); return; }
+function updatePiece_(p) {
+  const id = clean_(p.id,100);
+  const title = clean_(p.title,120);
+  const grades = normalizeGrades_(p.grades);
+  const active = parseBool_(p.active);
+  if (!id || !title || !grades.length) throw new Error('Title and at least one grade are required');
+  const sh = db_().getSheetByName(PIECES_SHEET);
+  const values = sh.getDataRange().getValues();
+  for (let i=1;i<values.length;i++) {
+    if (String(values[i][0]) === id) {
+      sh.getRange(i+1,2,1,3).setValues([[title,grades.join(','),active]]);
+      return;
+    }
+  }
+  throw new Error('Piece not found');
+}
+
+function setPieceActive_(id, activeValue) {
+  id = clean_(id,100);
+  if (!id) throw new Error('Piece id required');
+  const active = parseBool_(activeValue);
+  const sh = db_().getSheetByName(PIECES_SHEET);
+  const values = sh.getDataRange().getValues();
+  for (let i=1;i<values.length;i++) {
+    if (String(values[i][0]) === id) {
+      sh.getRange(i+1,4).setValue(active);
+      return;
+    }
+  }
   throw new Error('Piece not found');
 }
 
 function markPrinted_(idsText) {
   const ids = String(idsText || '').split(',').map(x=>x.trim()).filter(Boolean);
   if (!ids.length) return;
-  const sh = db_().getSheetByName(REQUESTS_SHEET), values = sh.getDataRange().getValues();
-  for (let i=1;i<values.length;i++) if (ids.includes(String(values[i][0]))) sh.getRange(i+1,8).setValue('PRINTED');
+  const sh = db_().getSheetByName(REQUESTS_SHEET);
+  const values = sh.getDataRange().getValues();
+  for (let i=1;i<values.length;i++) {
+    if (ids.includes(String(values[i][0]))) sh.getRange(i+1,8).setValue('PRINTED');
+  }
 }
 
 function requireAdmin_(key) {
@@ -144,13 +204,29 @@ function requireAdmin_(key) {
   if (String(key || '') !== expected) throw new Error('Incorrect admin PIN');
 }
 
+function normalizeGrades_(value) {
+  return String(value == null ? '' : value)
+    .split(',')
+    .map(x=>Number(String(x).trim()))
+    .filter(x=>[6,7,8].includes(x))
+    .filter((x,i,a)=>a.indexOf(x)===i)
+    .sort();
+}
+
+function parseBool_(value) {
+  if (value === true || value === false) return value;
+  return String(value).toLowerCase() === 'true';
+}
+
 function output_(data, callback) {
   const json = JSON.stringify(data);
   if (callback) {
     const safe = String(callback).replace(/[^A-Za-z0-9_$.]/g,'');
-    return ContentService.createTextOutput(safe + '(' + json + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
+    return ContentService.createTextOutput(safe + '(' + json + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
-  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(json)
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function clean_(value, max) {
