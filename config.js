@@ -1,5 +1,5 @@
 window.DERBY_MUSIC_CONFIG = {
-  API_URL: "",
+  API_URL: "https://script.google.com/macros/s/AKfycbyRh8fV3YbjsxD_Pl9zYBaJd-_d1jPdEi8--NZAm7jlYVSAGPX4qwuBLNanEYAoYXwHKw/exec",
   GOOGLE_FORM_URL: "https://docs.google.com/forms/d/e/1FAIpQLSd7rCHUY0MaQdLaX1Yed_JCBQKJ9gNHSyE0-a5xQqicJBCjDQ/viewform",
   GOOGLE_FORM_FIELDS: {
     name: "entry.92196832",
