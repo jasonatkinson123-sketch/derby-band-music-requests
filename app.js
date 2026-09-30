@@ -155,7 +155,15 @@
   }
 
   async function loadPieces(){
-    await loadStaticFallback();
+    // Show the student interface immediately. Never make kids wait for the
+    // network before the 6 / 7 / 8 buttons appear.
+    state.pieces=[...BUILTIN_FALLBACK];
+    renderStart();
+
+    // Refresh the fallback catalog in the background.
+    loadStaticFallback().catch(()=>{});
+
+    // Then refresh from the live shared repertoire without blocking the UI.
     if(API_URL){
       try{
         const data=await jsonp({action:'bootstrap'});
@@ -164,7 +172,6 @@
         console.warn('Using fallback repertoire:',e);
       }
     }
-    renderStart();
   }
 
   teacherDialog.addEventListener('click',e=>{if(e.target===teacherDialog)teacherDialog.close()});
