@@ -10,8 +10,10 @@
     GOOGLE_FORM_FIELDS.piece &&
     GOOGLE_FORM_FIELDS.instrument
   );
+
   const INSTRUMENTS = ['Flute','Oboe','Bassoon','Clarinet','Bass Clarinet','Alto Saxophone','Tenor Saxophone','Baritone Saxophone','Trumpet','French Horn','Trombone','Baritone','Tuba','Electric Bass','Percussion','Mallets / Bells'];
-  const SEED_PIECES = [
+
+  const BUILTIN_FALLBACK = [
     {id:'beginner', title:'Beginner', grades:[6,7,8], active:true},
     {id:'power', title:'Power', grades:[6,7,8], active:true},
     {id:'dragon-slayer', title:'Dragon Slayer', grades:[6,7,8], active:true},
@@ -37,21 +39,30 @@
   const teacherButton = document.getElementById('teacherButton');
   const teacherDialog = document.getElementById('teacherDialog');
   const teacherApp = document.getElementById('teacherApp');
-  const state = { grade:null, name:'', piece:null, instrument:null, pieces:[...SEED_PIECES], adminKey:'', requests:[] };
+
+  const state = {
+    grade:null,
+    name:'',
+    piece:null,
+    instrument:null,
+    pieces:[...BUILTIN_FALLBACK],
+    adminKey:'',
+    adminPieces:[]
+  };
 
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const slug = s => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 
   function jsonp(params){
     return new Promise((resolve,reject)=>{
-      if(!API_URL) return reject(new Error('API not configured'));
+      if(!API_URL) return reject(new Error('Live repertoire service is not connected.'));
       const cb='derbyCb_'+Date.now()+'_'+Math.floor(Math.random()*10000);
       const script=document.createElement('script');
       const timer=setTimeout(()=>done(new Error('Request timed out')),8000);
       const done=(err,data)=>{clearTimeout(timer);delete window[cb];script.remove();err?reject(err):resolve(data)};
       window[cb]=data=>done(null,data);
-      script.onerror=()=>done(new Error('Could not reach request service'));
-      const q=new URLSearchParams({...params,callback:cb});
+      script.onerror=()=>done(new Error('Could not reach repertoire service'));
+      const q=new URLSearchParams({...params,callback:cb,_:String(Date.now())});
       script.src=API_URL+'?'+q.toString();
       document.body.appendChild(script);
     });
@@ -60,25 +71,55 @@
   function postForm(fields){
     if(!API_URL) return false;
     const form=document.createElement('form');
-    form.method='POST';form.action=API_URL;form.target='writeTarget';form.style.display='none';
-    Object.entries(fields).forEach(([k,v])=>{const input=document.createElement('input');input.name=k;input.value=String(v);form.appendChild(input)});
-    document.body.appendChild(form);form.submit();setTimeout(()=>form.remove(),1000);return true;
+    form.method='POST';
+    form.action=API_URL;
+    form.target='writeTarget';
+    form.style.display='none';
+    Object.entries(fields).forEach(([k,v])=>{
+      const input=document.createElement('input');
+      input.name=k;
+      input.value=String(v);
+      form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(()=>form.remove(),1000);
+    return true;
   }
+
+  async function loadStaticFallback(){
+    try{
+      const response=await fetch('pieces.json?ts='+Date.now(),{cache:'no-store'});
+      if(!response.ok) throw new Error('fallback unavailable');
+      const pieces=await response.json();
+      if(Array.isArray(pieces)&&pieces.length) state.pieces=pieces;
+    }catch(e){
+      state.pieces=[...BUILTIN_FALLBACK];
+    }
+  }
+
   function renderStart(){
-    state.grade=null;state.piece=null;state.instrument=null;
-    app.innerHTML=`<h2 class="screen-title">NEED REPLACEMENT MUSIC?</h2><p class="screen-subtitle">Choose your grade.</p><div class="grid grade-grid">${[6,7,8].map(g=>`<button class="pixel-button grade" data-grade="${g}"><strong>${g}</strong>GRADE</button>`).join('')}</div>${(!API_URL&&!FORM_MODE)?'<div class="notice">Demo mode: requests are not connected yet.</div>':''}`;
+    state.grade=null;
+    state.piece=null;
+    state.instrument=null;
+    app.innerHTML=`<h2 class="screen-title">NEED REPLACEMENT MUSIC?</h2><p class="screen-subtitle">Choose your grade.</p><div class="grid grade-grid">${[6,7,8].map(g=>`<button class="pixel-button grade" data-grade="${g}"><strong>${g}</strong>GRADE</button>`).join('')}</div>${(!FORM_MODE)?'<div class="notice">Requests are temporarily unavailable. Please tell Mr. Atkinson what you need.</div>':''}`;
     app.querySelectorAll('[data-grade]').forEach(b=>b.onclick=()=>{state.grade=Number(b.dataset.grade);renderName()});
   }
 
   function renderName(){
     app.innerHTML=`<button class="action secondary back" id="backStart">← BACK</button><h2 class="screen-title">${state.grade}TH GRADE</h2><p class="screen-subtitle">Who needs the replacement copy?</p><div class="field"><label for="studentName">YOUR NAME</label><input id="studentName" maxlength="60" autocomplete="name" placeholder="First name + last initial" value="${esc(state.name)}"></div><div class="action-row"><button class="action primary" id="nextPieces">CHOOSE PIECE →</button></div>`;
     document.getElementById('backStart').onclick=renderStart;
-    document.getElementById('nextPieces').onclick=()=>{const n=document.getElementById('studentName').value.trim();if(!n){document.getElementById('studentName').focus();return}state.name=n;renderPieces()};
+    const input=document.getElementById('studentName');
+    const go=()=>{const n=input.value.trim();if(!n){input.focus();return}state.name=n;renderPieces()};
+    document.getElementById('nextPieces').onclick=go;
+    input.onkeydown=e=>{if(e.key==='Enter')go()};
   }
 
   function renderPieces(){
-    const pieces=state.pieces.filter(p=>p.active!==false && p.grades.includes(state.grade)).sort((a,b)=>a.title.localeCompare(b.title));
-    app.innerHTML=`<button class="action secondary back" id="backName">← BACK</button><h2 class="screen-title">CHOOSE YOUR PIECE</h2><div class="chip-row"><span class="chip">${state.grade}th grade</span><span class="chip">${esc(state.name)}</span></div><div class="grid piece-grid">${pieces.map(p=>`<button class="pixel-button piece" data-piece="${esc(p.id)}">${esc(p.title)}</button>`).join('')}</div>`;
+    const pieces=state.pieces
+      .filter(p=>p.active!==false && Array.isArray(p.grades) && p.grades.includes(state.grade))
+      .sort((a,b)=>a.title.localeCompare(b.title));
+    app.innerHTML=`<button class="action secondary back" id="backName">← BACK</button><h2 class="screen-title">CHOOSE YOUR PIECE</h2><div class="chip-row"><span class="chip">${state.grade}th grade</span><span class="chip">${esc(state.name)}</span></div><div class="grid piece-grid">${pieces.map(p=>`<button class="pixel-button piece" data-piece="${esc(p.id)}">${esc(p.title)}</button>`).join('')}</div>${pieces.length?'':'<div class="notice">No pieces are listed for this grade right now.</div>'}`;
     document.getElementById('backName').onclick=renderName;
     app.querySelectorAll('[data-piece]').forEach(b=>b.onclick=()=>{state.piece=state.pieces.find(p=>p.id===b.dataset.piece);renderInstruments()});
   }
@@ -97,14 +138,8 @@
     sendButton.onclick=submitRequest;
   }
 
-  function renderConfirm(){
-    app.innerHTML=`<button class="action secondary back" id="backInst">← BACK</button><h2 class="screen-title">CHECK YOUR REQUEST</h2><div class="card"><p><strong>${esc(state.name)}</strong></p><p>${state.grade}th Grade</p><p>${esc(state.piece.title)}</p><p>${esc(state.instrument)}</p></div><div class="notice">Your replacement copy will be ready at the next rehearsal. Keep playing from a neighbor's copy today.</div><div class="action-row"><button class="action primary" id="sendRequest">REQUEST MUSIC</button></div>`;
-    document.getElementById('backInst').onclick=renderInstruments;
-    document.getElementById('sendRequest').onclick=submitRequest;
-  }
-
   function submitRequest(){
-    if(!state.instrument) return;
+    if(!state.instrument || !state.piece) return;
     if(FORM_MODE){
       const url=new URL(GOOGLE_FORM_URL);
       url.searchParams.set('usp','pp_url');
@@ -115,61 +150,109 @@
       window.location.assign(url.toString());
       return;
     }
-    const ok=postForm({action:'request',name:state.name,grade:state.grade,piece:state.piece.title,pieceId:state.piece.id,instrument:state.instrument});
-    app.innerHTML=`<div class="confirmation"><div class="confirm-icon">✓</div><h2>${ok?'REQUEST SENT!':'DEMO REQUEST SAVED'}</h2><p>${esc(state.piece.title)} — ${esc(state.instrument)}</p><p>Your replacement music will be ready at the next rehearsal.</p><button class="action primary" id="another">DONE</button></div>`;
+    app.innerHTML=`<div class="confirmation"><div class="confirm-icon">!</div><h2>REQUEST NOT SENT</h2><p>Please tell Mr. Atkinson what music you need.</p><button class="action primary" id="another">DONE</button></div>`;
     document.getElementById('another').onclick=()=>{state.name='';renderStart()};
   }
 
   async function loadPieces(){
-    if(!API_URL){renderStart();return;}
-    try{const data=await jsonp({action:'bootstrap'});if(data?.pieces?.length)state.pieces=data.pieces;}catch(e){console.warn(e)}
+    await loadStaticFallback();
+    if(API_URL){
+      try{
+        const data=await jsonp({action:'bootstrap'});
+        if(data?.pieces?.length) state.pieces=data.pieces;
+      }catch(e){
+        console.warn('Using fallback repertoire:',e);
+      }
+    }
     renderStart();
   }
-  if(FORM_MODE && !API_URL){
-    teacherButton.style.display='none';
-  } else {
-    teacherButton.onclick=()=>{teacherDialog.showModal();renderTeacherLogin()};
-  }
+
   teacherDialog.addEventListener('click',e=>{if(e.target===teacherDialog)teacherDialog.close()});
+  teacherButton.onclick=()=>{teacherDialog.showModal();renderTeacherLogin()};
 
   function renderTeacherLogin(){
-    teacherApp.innerHTML=`<div class="teacher-wrap"><div class="teacher-head"><h2>TEACHER MODE</h2><button class="action" id="closeTeacher">CLOSE</button></div><div class="card"><div class="field"><label for="adminKey">ADMIN PIN</label><input id="adminKey" type="password" inputmode="numeric" autocomplete="off" placeholder="Teacher PIN"></div><div class="action-row"><button class="action primary" id="teacherGo">OPEN DASHBOARD</button></div><div id="teacherError"></div></div></div>`;
+    teacherApp.innerHTML=`<div class="teacher-wrap"><div class="teacher-head"><h2>TEACHER REPERTOIRE</h2><button class="action" id="closeTeacher">CLOSE</button></div>${API_URL?`<div class="card"><div class="field"><label for="adminKey">ADMIN PIN</label><input id="adminKey" type="password" inputmode="numeric" autocomplete="off" placeholder="Teacher PIN"></div><div class="action-row"><button class="action primary" id="teacherGo">MANAGE PIECES</button></div><div id="teacherError"></div></div>`:`<div class="notice">The student request page is working from its safe fallback list. Live teacher editing has not been connected yet.</div>`}</div>`;
     document.getElementById('closeTeacher').onclick=()=>teacherDialog.close();
-    document.getElementById('teacherGo').onclick=async()=>{
+    const go=document.getElementById('teacherGo');
+    if(go) go.onclick=async()=>{
       const key=document.getElementById('adminKey').value.trim();
       if(!key)return;
       state.adminKey=key;
-      if(!API_URL){renderTeacherDashboard();return;}
-      try{const data=await jsonp({action:'requests',key});if(data?.error)throw new Error(data.error);state.requests=data.requests||[];renderTeacherDashboard();}catch(e){document.getElementById('teacherError').innerHTML=`<div class="notice error">${esc(e.message||'Could not open dashboard')}</div>`;}
+      try{
+        const data=await jsonp({action:'adminPieces',key});
+        if(data?.error) throw new Error(data.error);
+        state.adminPieces=data.pieces||[];
+        renderTeacherDashboard();
+      }catch(e){
+        document.getElementById('teacherError').innerHTML=`<div class="notice error">${esc(e.message||'Could not open repertoire manager')}</div>`;
+      }
     };
   }
 
   function renderTeacherDashboard(){
-    teacherApp.innerHTML=`<div class="teacher-wrap"><div class="teacher-head"><div><h2>MUSIC REQUEST QUEUE</h2><div class="small">${API_URL?'Live queue':'Demo mode'}</div></div><button class="action" id="closeTeacher">CLOSE</button></div><div class="tabs"><button class="action tab active" id="requestsTab">REQUESTS</button><button class="action tab" id="piecesTab">PIECES</button></div><div id="adminBody"></div></div>`;
+    teacherApp.innerHTML=`<div class="teacher-wrap"><div class="teacher-head"><div><h2>REPERTOIRE MANAGER</h2><div class="small">Changes here become the student list.</div></div><button class="action" id="closeTeacher">CLOSE</button></div><div id="adminBody"></div></div>`;
     document.getElementById('closeTeacher').onclick=()=>teacherDialog.close();
-    document.getElementById('requestsTab').onclick=()=>{document.getElementById('requestsTab').classList.add('active');document.getElementById('piecesTab').classList.remove('active');renderRequestsAdmin()};
-    document.getElementById('piecesTab').onclick=()=>{document.getElementById('piecesTab').classList.add('active');document.getElementById('requestsTab').classList.remove('active');renderPiecesAdmin()};
-    renderRequestsAdmin();
+    renderPiecesAdmin();
   }
 
-  async function refreshRequests(){
-    if(!API_URL)return;
-    try{const data=await jsonp({action:'requests',key:state.adminKey});if(data?.error)throw new Error(data.error);state.requests=data.requests||[];renderRequestsAdmin();}catch(e){alert(e.message||'Could not refresh requests')}
+  function gradeChecks(selected=[]){
+    return [6,7,8].map(g=>`<label><input type="checkbox" value="${g}" class="editGrade" ${selected.includes(g)?'checked':''}> ${g}</label>`).join('');
   }
 
-  function renderRequestsAdmin(){
-    const body=document.getElementById('adminBody');if(!body)return;
-    const open=state.requests.filter(r=>String(r.status||'OPEN').toUpperCase()!=='PRINTED');
-    body.innerHTML=`<div class="admin-grid"><section class="card"><h3>TODAY'S REQUESTS — ${open.length}</h3><div class="request-list">${open.length?open.map(r=>`<div class="request"><input type="checkbox" data-req="${esc(r.id)}"><div><strong>${esc(r.name)}</strong> — ${esc(r.piece)}<div class="meta">Grade ${esc(r.grade)} · ${esc(r.instrument)} · ${esc(r.time||'')}</div></div><span>#${esc(r.id)}</span></div>`).join(''):'<p>No open requests.</p>'}</div></section><aside class="card"><h3>QUEUE TOOLS</h3><div class="action-row"><button class="action primary" id="markPrinted">MARK CHECKED PRINTED</button><button class="action" id="copyQueue">COPY QUEUE</button><button class="action" id="refreshQueue">REFRESH</button></div><p class="small">Copy Queue gives you a clean list you can paste into ChatGPT for one replacement packet.</p></aside></div>`;
-    document.getElementById('refreshQueue').onclick=refreshRequests;
-    document.getElementById('copyQueue').onclick=async()=>{const text=open.map(r=>`${r.name} — Grade ${r.grade} — ${r.piece} — ${r.instrument}`).join('\n');await navigator.clipboard.writeText(text||'No open requests.');document.getElementById('copyQueue').textContent='COPIED!';setTimeout(()=>document.getElementById('copyQueue').textContent='COPY QUEUE',1200)};
-    document.getElementById('markPrinted').onclick=()=>{const ids=[...body.querySelectorAll('[data-req]:checked')].map(x=>x.dataset.req);if(!ids.length)return;if(API_URL)postForm({action:'markPrinted',key:state.adminKey,ids:ids.join(',')});state.requests=state.requests.map(r=>ids.includes(String(r.id))?{...r,status:'PRINTED'}:r);renderRequestsAdmin()};
-  }
   function renderPiecesAdmin(){
-    const body=document.getElementById('adminBody');if(!body)return;
-    body.innerHTML=`<div class="admin-grid"><section class="card"><h3>ACTIVE PIECES</h3><div class="piece-admin-list">${state.pieces.slice().sort((a,b)=>a.title.localeCompare(b.title)).map(p=>`<div class="piece-row"><div><strong>${esc(p.title)}</strong><div class="small">Grades ${p.grades.join(', ')}</div></div><span>${p.active===false?'OFF':'ON'}</span><button class="action danger" data-remove-piece="${esc(p.id)}">REMOVE</button></div>`).join('')}</div></section><aside class="card"><h3>ADD A PIECE</h3><div class="field"><label for="newPieceTitle">TITLE</label><input id="newPieceTitle" placeholder="Piece title"></div><label>SHOW FOR GRADES</label><div class="checkbox-row"><label><input type="checkbox" value="6" class="newGrade"> 6</label><label><input type="checkbox" value="7" class="newGrade"> 7</label><label><input type="checkbox" value="8" class="newGrade"> 8</label></div><div class="action-row"><button class="action primary" id="addPiece">ADD PIECE</button></div><p class="small">New pieces appear for students as soon as the live request service is connected.</p></aside></div>`;
-    document.getElementById('addPiece').onclick=()=>{const title=document.getElementById('newPieceTitle').value.trim();const grades=[...body.querySelectorAll('.newGrade:checked')].map(x=>Number(x.value));if(!title||!grades.length)return;const piece={id:slug(title)+'-'+Date.now(),title,grades,active:true};state.pieces.push(piece);if(API_URL)postForm({action:'addPiece',key:state.adminKey,id:piece.id,title:piece.title,grades:piece.grades.join(',')});renderPiecesAdmin()};
-    body.querySelectorAll('[data-remove-piece]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.removePiece;state.pieces=state.pieces.filter(p=>p.id!==id);if(API_URL)postForm({action:'removePiece',key:state.adminKey,id});renderPiecesAdmin()});
+    const body=document.getElementById('adminBody');
+    if(!body)return;
+    const pieces=state.adminPieces.slice().sort((a,b)=>a.title.localeCompare(b.title));
+    body.innerHTML=`<div class="admin-grid"><section class="card"><h3>PIECES</h3><div class="piece-admin-list">${pieces.map(p=>`<div class="piece-row"><div><strong>${esc(p.title)}</strong><div class="small">Grades ${p.grades.join(', ')} · ${p.active===false?'HIDDEN':'VISIBLE'}</div></div><button class="action" data-edit-piece="${esc(p.id)}">EDIT</button><button class="action ${p.active===false?'':'danger'}" data-toggle-piece="${esc(p.id)}">${p.active===false?'SHOW':'HIDE'}</button></div>`).join('')}</div></section><aside class="card"><h3>ADD A PIECE</h3><div class="field"><label for="newPieceTitle">TITLE</label><input id="newPieceTitle" placeholder="Piece title"></div><label>SHOW FOR GRADES</label><div class="checkbox-row"><label><input type="checkbox" value="6" class="newGrade"> 6</label><label><input type="checkbox" value="7" class="newGrade"> 7</label><label><input type="checkbox" value="8" class="newGrade"> 8</label></div><div class="action-row"><button class="action primary" id="addPiece">ADD PIECE</button></div><p class="small">Students see saved changes the next time they open or refresh this page.</p></aside></div>`;
+    document.getElementById('addPiece').onclick=addPieceFromAdmin;
+    body.querySelectorAll('[data-edit-piece]').forEach(btn=>btn.onclick=()=>renderEditPiece(btn.dataset.editPiece));
+    body.querySelectorAll('[data-toggle-piece]').forEach(btn=>btn.onclick=()=>togglePiece(btn.dataset.togglePiece));
+  }
+
+  async function refreshAdminPieces(message){
+    await new Promise(r=>setTimeout(r,800));
+    const data=await jsonp({action:'adminPieces',key:state.adminKey});
+    if(data?.error) throw new Error(data.error);
+    state.adminPieces=data.pieces||[];
+    const live=state.adminPieces.filter(p=>p.active!==false);
+    if(live.length) state.pieces=live;
+    renderPiecesAdmin();
+    if(message){
+      const body=document.getElementById('adminBody');
+      body.insertAdjacentHTML('afterbegin',`<div class="notice">${esc(message)}</div>`);
+    }
+  }
+
+  async function addPieceFromAdmin(){
+    const title=document.getElementById('newPieceTitle').value.trim();
+    const grades=[...document.querySelectorAll('.newGrade:checked')].map(x=>Number(x.value));
+    if(!title||!grades.length)return;
+    const id=(slug(title)||'piece')+'-'+Date.now();
+    postForm({action:'addPiece',key:state.adminKey,id,title,grades:grades.join(',')});
+    try{await refreshAdminPieces('Piece added.');}catch(e){alert(e.message||'Could not refresh pieces');}
+  }
+
+  function renderEditPiece(id){
+    const p=state.adminPieces.find(x=>x.id===id);
+    if(!p)return;
+    const body=document.getElementById('adminBody');
+    body.innerHTML=`<div class="card"><button class="action secondary back" id="backPiecesAdmin">← BACK</button><h3>EDIT PIECE</h3><div class="field"><label for="editPieceTitle">TITLE</label><input id="editPieceTitle" maxlength="120" value="${esc(p.title)}"></div><label>SHOW FOR GRADES</label><div class="checkbox-row">${gradeChecks(p.grades)}</div><label class="checkbox-row"><input type="checkbox" id="editPieceActive" ${p.active===false?'':'checked'}> Visible to students</label><div class="action-row"><button class="action primary" id="savePiece">SAVE CHANGES</button></div></div>`;
+    document.getElementById('backPiecesAdmin').onclick=renderPiecesAdmin;
+    document.getElementById('savePiece').onclick=async()=>{
+      const title=document.getElementById('editPieceTitle').value.trim();
+      const grades=[...body.querySelectorAll('.editGrade:checked')].map(x=>Number(x.value));
+      const active=document.getElementById('editPieceActive').checked;
+      if(!title||!grades.length)return;
+      postForm({action:'updatePiece',key:state.adminKey,id:p.id,title,grades:grades.join(','),active:String(active)});
+      try{await refreshAdminPieces('Changes saved.');}catch(e){alert(e.message||'Could not refresh pieces');}
+    };
+  }
+
+  async function togglePiece(id){
+    const p=state.adminPieces.find(x=>x.id===id);
+    if(!p)return;
+    postForm({action:'setPieceActive',key:state.adminKey,id,active:String(p.active===false)});
+    try{await refreshAdminPieces(p.active===false?'Piece is visible again.':'Piece hidden from students.');}catch(e){alert(e.message||'Could not refresh pieces');}
   }
 
   loadPieces();
