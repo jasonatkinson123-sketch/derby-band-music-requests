@@ -171,7 +171,7 @@
   teacherButton.onclick=()=>{teacherDialog.showModal();renderTeacherLogin()};
 
   function renderTeacherLogin(){
-    teacherApp.innerHTML=`<div class="teacher-wrap"><div class="teacher-head"><h2>TEACHER REPERTOIRE</h2><button class="action" id="closeTeacher">CLOSE</button></div>${API_URL?`<div class="card"><div class="field"><label for="adminKey">ADMIN PIN</label><input id="adminKey" type="password" inputmode="numeric" autocomplete="off" placeholder="Teacher PIN"></div><div class="action-row"><button class="action primary" id="teacherGo">MANAGE PIECES</button></div><div id="teacherError"></div></div>`:`<div class="notice">The student request page is working from its safe fallback list. Live teacher editing has not been connected yet.</div>`}</div>`;
+    teacherApp.innerHTML=`<div class="teacher-wrap"><div class="teacher-head"><div><h2>TEACHER REPERTOIRE</h2><div class="small">${API_URL?'LIVE CATALOG CONNECTED':'SAFE FALLBACK MODE'}</div></div><button class="action" id="closeTeacher">CLOSE</button></div>${API_URL?`<div class="card"><div class="field"><label for="adminKey">ADMIN PIN</label><input id="adminKey" type="password" inputmode="numeric" autocomplete="off" placeholder="Teacher PIN"></div><div class="action-row"><button class="action primary" id="teacherGo">MANAGE PIECES</button></div><div id="teacherError"></div></div>`:`<div class="notice">Students can keep requesting music normally. This page is currently reading the shared fallback catalog, but teacher edits are not publishable until the live catalog connection is turned on.</div>`}</div>`;
     document.getElementById('closeTeacher').onclick=()=>teacherDialog.close();
     const go=document.getElementById('teacherGo');
     if(go) go.onclick=async()=>{
@@ -210,12 +210,18 @@
   }
 
   async function refreshAdminPieces(message){
-    await new Promise(r=>setTimeout(r,800));
-    const data=await jsonp({action:'adminPieces',key:state.adminKey});
-    if(data?.error) throw new Error(data.error);
+    let data=null,lastError=null;
+    for(let attempt=0;attempt<4;attempt++){
+      if(attempt) await new Promise(r=>setTimeout(r,450+attempt*250));
+      try{
+        data=await jsonp({action:'adminPieces',key:state.adminKey});
+        if(data?.error) throw new Error(data.error);
+        break;
+      }catch(e){lastError=e;}
+    }
+    if(!data) throw lastError||new Error('Could not refresh repertoire.');
     state.adminPieces=data.pieces||[];
-    const live=state.adminPieces.filter(p=>p.active!==false);
-    if(live.length) state.pieces=live;
+    state.pieces=state.adminPieces.filter(p=>p.active!==false);
     renderPiecesAdmin();
     if(message){
       const body=document.getElementById('adminBody');
