@@ -19,7 +19,7 @@
     {id:'dragon-slayer', title:'Dragon Slayer', grades:[6,7,8], active:true},
     {id:'alpha-squadron', title:'Alpha Squadron', grades:[6,7,8], active:true},
     {id:'jester-dance', title:'Jester Dance', grades:[6,7,8], active:true},
-    {id:'midnight-madness', title:'Midnight Madness', grades:[7,8], active:true},
+    {id:'midnight-madness', title:'Midnight Madness', grades:[6,7,8], active:true},
     {id:'might-of-hercules', title:'The Might of Hercules', grades:[7,8], active:true},
     {id:'rise-of-bladesmith', title:'Rise of the Bladesmith', grades:[7,8], active:true},
     {id:'star-wars', title:'Star Wars', grades:[7,8], active:true},
@@ -47,7 +47,8 @@
     instrument:null,
     pieces:[...BUILTIN_FALLBACK],
     adminKey:'',
-    adminPieces:[]
+    adminPieces:[],
+    liveCatalogLoaded:false
   };
 
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -87,14 +88,41 @@
     return true;
   }
 
+  function setStudentPieces(pieces, fromLive=false) {
+    if (!Array.isArray(pieces) || !pieces.length) return;
+    // The live teacher-managed catalog always wins over a fallback fetch.
+    if (!fromLive && state.liveCatalogLoaded) return;
+    state.pieces=pieces;
+    if (fromLive) state.liveCatalogLoaded=true;
+    // A student may already be on the piece screen while data is loading.
+    // Repaint that screen so newly added music appears without restarting.
+    if (document.getElementById('backName')) renderPieces();
+  }
+
   async function loadStaticFallback(){
-    try{
+    try {
       const response=await fetch('pieces.json?ts='+Date.now(),{cache:'no-store'});
       if(!response.ok) throw new Error('fallback unavailable');
-      const pieces=await response.json();
-      if(Array.isArray(pieces)&&pieces.length) state.pieces=pieces;
-    }catch(e){
-      state.pieces=[...BUILTIN_FALLBACK];
+      setStudentPieces(await response.json());
+    } catch(e) {
+      if (!state.liveCatalogLoaded) setStudentPieces([...BUILTIN_FALLBACK]);
+    }
+  }
+
+  async function refreshLivePieces() {
+    if (!API_URL) return false;
+    try {
+      const data=await jsonp({action:'bootstrap'});
+      if (data?.error) throw new Error(data.error);
+      if (!Array.isArray(data?.pieces)) throw new Error('Invalid catalog response');
+      // An empty live catalog is valid (the teacher may have hidden all pieces).
+      state.pieces=data.pieces;
+      state.liveCatalogLoaded=true;
+      if (document.getElementById('backName')) renderPieces();
+      return true;
+    } catch(e) {
+      console.warn('Using last available repertoire:',e);
+      return false;
     }
   }
 
@@ -110,24 +138,35 @@
     app.innerHTML=`<button class="action secondary back" id="backStart">← BACK</button><h2 class="screen-title">${state.grade}TH GRADE</h2><p class="screen-subtitle">Who needs the replacement copy?</p><div class="field"><label for="studentName">YOUR NAME</label><input id="studentName" maxlength="60" autocomplete="name" placeholder="First name + last initial" value="${esc(state.name)}"></div><div class="action-row"><button class="action primary" id="nextPieces">CHOOSE PIECE →</button></div>`;
     document.getElementById('backStart').onclick=renderStart;
     const input=document.getElementById('studentName');
-    const go=()=>{const n=input.value.trim();if(!n){input.focus();return}state.name=n;renderPieces()};
+    const go=()=>{const n=input.value.trim();if(!n){input.focus();return}state.name=n;renderPieces();refreshLivePieces()};
     document.getElementById('nextPieces').onclick=go;
     input.onkeydown=e=>{if(e.key==='Enter')go()};
   }
 
   function renderPieces(){
     const pieces=state.pieces
-      .filter(p=>p.active!==false && Array.isArray(p.grades) && p.grades.includes(state.grade))
+      .filter(p=>p.active!==false && Array.isArray(p.grades) && p.grades.map(Number).includes(state.grade))
       .sort((a,b)=>a.title.localeCompare(b.title));
-    app.innerHTML=`<button class="action secondary back" id="backName">← BACK</button><h2 class="screen-title">CHOOSE YOUR PIECE</h2><div class="chip-row"><span class="chip">${state.grade}th grade</span><span class="chip">${esc(state.name)}</span></div><div class="grid piece-grid">${pieces.map(p=>`<button class="pixel-button piece" data-piece="${esc(p.id)}">${esc(p.title)}</button>`).join('')}</div>${pieces.length?'':'<div class="notice">No pieces are listed for this grade right now.</div>'}`;
+    app.innerHTML=`<button class="action secondary back" id="backName">← BACK</button><h2 class="screen-title">CHOOSE YOUR PIECE</h2><div class="chip-row"><span class="chip">${state.grade}th grade</span><span class="chip">${esc(state.name)}</span></div><div class="grid piece-grid">${pieces.map(p=>`<button class="pixel-button piece" data-piece="${esc(p.id)}">${esc(p.title)}</button>`).join('')}</div><div class="action-row"><button class="action secondary" id="refreshList">↻ REFRESH MUSIC LIST</button></div>${pieces.length?'':'<div class="notice">No pieces are listed for this grade right now.</div>'}`;
     document.getElementById('backName').onclick=renderName;
+    document.getElementById('refreshList').onclick=async()=>{
+      const button=document.getElementById('refreshList');
+      button.disabled=true;
+      button.textContent='↻ CHECKING FOR NEW MUSIC...';
+      const success=await refreshLivePieces();
+      const current=document.getElementById('refreshList');
+      if(current){
+        current.disabled=false;
+        current.textContent=success?'✓ LIST UPDATED':'↻ RETRY REFRESH';
+      }
+    };
     app.querySelectorAll('[data-piece]').forEach(b=>b.onclick=()=>{state.piece=state.pieces.find(p=>p.id===b.dataset.piece);renderInstruments()});
   }
 
   function renderInstruments(){
     state.instrument=null;
     app.innerHTML=`<button class="action secondary back" id="backPieces">← BACK</button><h2 class="screen-title">CHOOSE YOUR INSTRUMENT</h2><p class="screen-subtitle">Tap your instrument, then continue to the Google Form.</p><div class="chip-row"><span class="chip">${esc(state.name)}</span><span class="chip">${esc(state.piece.title)}</span></div><div class="grid instrument-grid">${INSTRUMENTS.map(i=>`<button class="pixel-button instrument" data-instrument="${esc(i)}">${esc(i)}</button>`).join('')}</div><div class="send-dock" id="sendDock"><div id="selectedInstrument" class="selected-instrument">No instrument selected</div><button class="action primary send-request" id="sendRequest" disabled>CONTINUE TO FORM</button></div>`;
-    document.getElementById('backPieces').onclick=renderPieces;
+    document.getElementById('backPieces').onclick=()=>{renderPieces();refreshLivePieces()};
     const sendButton=document.getElementById('sendRequest');
     app.querySelectorAll('[data-instrument]').forEach(b=>b.onclick=()=>{
       state.instrument=b.dataset.instrument;
@@ -154,25 +193,17 @@
     document.getElementById('another').onclick=()=>{state.name='';renderStart()};
   }
 
-  async function loadPieces(){
-    // Show the student interface immediately. Never make kids wait for the
-    // network before the 6 / 7 / 8 buttons appear.
+  function loadPieces(){
+    // Let students start immediately, then update with fresh teacher edits.
     state.pieces=[...BUILTIN_FALLBACK];
     renderStart();
-
-    // Refresh the fallback catalog in the background.
     loadStaticFallback().catch(()=>{});
-
-    // Then refresh from the live shared repertoire without blocking the UI.
-    if(API_URL){
-      try{
-        const data=await jsonp({action:'bootstrap'});
-        if(data?.pieces?.length) state.pieces=data.pieces;
-      }catch(e){
-        console.warn('Using fallback repertoire:',e);
-      }
-    }
+    refreshLivePieces();
   }
+
+  document.addEventListener('visibilitychange',()=>{
+    if(!document.hidden && document.getElementById('backName')) refreshLivePieces();
+  });
 
   teacherDialog.addEventListener('click',e=>{if(e.target===teacherDialog)teacherDialog.close()});
   teacherButton.onclick=()=>{teacherDialog.showModal();renderTeacherLogin()};
