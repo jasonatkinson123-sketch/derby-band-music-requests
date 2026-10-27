@@ -177,5 +177,15 @@
       8
     ],
     "active": true
+  },
+  {
+    "id": "sleigh-ride",
+    "title": "Sleigh Ride",
+    "grades": [
+      6,
+      7,
+      8
+    ],
+    "active": true
   }
 ]
