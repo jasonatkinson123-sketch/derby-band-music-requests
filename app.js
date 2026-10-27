@@ -29,6 +29,7 @@
     {id:'mechanical-monsters', title:'Mechanical Monsters', grades:[6,7,8], active:true},
     {id:'wrath-mechanical', title:'Wrath of the Mechanical Monsters', grades:[7,8], active:true},
     {id:'tempest', title:'The Tempest', grades:[6,7,8], active:true},
+    {id:'sleigh-ride', title:'Sleigh Ride', grades:[6,7,8], active:true},
     {id:'valiance', title:'Valiance', grades:[7,8], active:true},
     {id:'engines-resistance', title:'Engines of Resistance', grades:[7,8], active:true},
     {id:'conquer-kraken', title:'To Conquer the Kraken', grades:[7,8], active:true},
@@ -53,6 +54,18 @@
 
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const slug = s => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+
+  // Keep Sleigh Ride available on the PUBLIC student picker for all three grades.
+  // The teacher-managed live catalog can replace the fallback, so the public
+  // catalog must include this piece even if the backend sheet is not updated.
+  function withSleighRide(pieces) {
+    const list = Array.isArray(pieces) ? pieces : [];
+    const matches = p => p.id === 'sleigh-ride' || slug(p.title) === 'sleigh-ride';
+    if (list.some(matches)) {
+      return list.map(p => matches(p) ? {...p, title:'Sleigh Ride', grades:[6,7,8], active:true} : p);
+    }
+    return [...list, {id:'sleigh-ride', title:'Sleigh Ride', grades:[6,7,8], active:true}];
+  }
 
   function jsonp(params){
     return new Promise((resolve,reject)=>{
@@ -92,7 +105,7 @@
     if (!Array.isArray(pieces) || !pieces.length) return;
     // The live teacher-managed catalog always wins over a fallback fetch.
     if (!fromLive && state.liveCatalogLoaded) return;
-    state.pieces=pieces;
+    state.pieces=withSleighRide(pieces);
     if (fromLive) state.liveCatalogLoaded=true;
     // A student may already be on the piece screen while data is loading.
     // Repaint that screen so newly added music appears without restarting.
@@ -116,7 +129,7 @@
       if (data?.error) throw new Error(data.error);
       if (!Array.isArray(data?.pieces)) throw new Error('Invalid catalog response');
       // An empty live catalog is valid (the teacher may have hidden all pieces).
-      state.pieces=data.pieces;
+      state.pieces=withSleighRide(data.pieces);
       state.liveCatalogLoaded=true;
       if (document.getElementById('backName')) renderPieces();
       return true;
@@ -259,7 +272,7 @@
     }
     if(!data) throw lastError||new Error('Could not refresh repertoire.');
     state.adminPieces=data.pieces||[];
-    state.pieces=state.adminPieces.filter(p=>p.active!==false);
+    state.pieces=withSleighRide(state.adminPieces.filter(p=>p.active!==false));
     renderPiecesAdmin();
     if(message){
       const body=document.getElementById('adminBody');
