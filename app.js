@@ -55,16 +55,20 @@
   const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const slug = s => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 
-  // Keep Sleigh Ride available on the PUBLIC student picker for all three grades.
-  // The teacher-managed live catalog can replace the fallback, so the public
-  // catalog must include this piece even if the backend sheet is not updated.
-  function withSleighRide(pieces) {
-    const list = Array.isArray(pieces) ? pieces : [];
-    const matches = p => p.id === 'sleigh-ride' || slug(p.title) === 'sleigh-ride';
-    if (list.some(matches)) {
-      return list.map(p => matches(p) ? {...p, title:'Sleigh Ride', grades:[6,7,8], active:true} : p);
+  // Public student catalog requirements. The teacher-managed live catalog
+  // may replace the static list; these selections must still appear for grade 6.
+  function withRequiredPublicPieces(pieces) {
+    const list = Array.isArray(pieces) ? [...pieces] : [];
+    const required = [
+      {id:'sleigh-ride', title:'Sleigh Ride', grades:[6,7,8], active:true},
+      {id:'wrath-mechanical', title:'Wrath of the Mechanical Monsters', grades:[6,7,8], active:true}
+    ];
+    for (const piece of required) {
+      const index = list.findIndex(p => p.id === piece.id || slug(p.title) === slug(piece.title));
+      if (index >= 0) list[index] = {...list[index], ...piece};
+      else list.push({...piece});
     }
-    return [...list, {id:'sleigh-ride', title:'Sleigh Ride', grades:[6,7,8], active:true}];
+    return list;
   }
 
   function jsonp(params){
@@ -105,7 +109,7 @@
     if (!Array.isArray(pieces) || !pieces.length) return;
     // The live teacher-managed catalog always wins over a fallback fetch.
     if (!fromLive && state.liveCatalogLoaded) return;
-    state.pieces=withSleighRide(pieces);
+    state.pieces=withRequiredPublicPieces(pieces);
     if (fromLive) state.liveCatalogLoaded=true;
     // A student may already be on the piece screen while data is loading.
     // Repaint that screen so newly added music appears without restarting.
@@ -129,7 +133,7 @@
       if (data?.error) throw new Error(data.error);
       if (!Array.isArray(data?.pieces)) throw new Error('Invalid catalog response');
       // An empty live catalog is valid (the teacher may have hidden all pieces).
-      state.pieces=withSleighRide(data.pieces);
+      state.pieces=withRequiredPublicPieces(data.pieces);
       state.liveCatalogLoaded=true;
       if (document.getElementById('backName')) renderPieces();
       return true;
@@ -272,7 +276,7 @@
     }
     if(!data) throw lastError||new Error('Could not refresh repertoire.');
     state.adminPieces=data.pieces||[];
-    state.pieces=withSleighRide(state.adminPieces.filter(p=>p.active!==false));
+    state.pieces=withRequiredPublicPieces(state.adminPieces.filter(p=>p.active!==false));
     renderPiecesAdmin();
     if(message){
       const body=document.getElementById('adminBody');
