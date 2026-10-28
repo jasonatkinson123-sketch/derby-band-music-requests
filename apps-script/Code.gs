@@ -16,7 +16,7 @@ const SEED_PIECES = [
   ['shine','Shine','7,8',true],
   ['falcons-flight',"Falcon's Flight March",'7,8',true],
   ['mechanical-monsters','Mechanical Monsters','6,7,8',true],
-  ['wrath-mechanical','Wrath of the Mechanical Monsters','7,8',true],
+  ['wrath-mechanical','Wrath of the Mechanical Monsters','6,7,8',true],
   ['tempest','The Tempest','6,7,8',true],
   ['valiance','Valiance','7,8',true],
   ['engines-resistance','Engines of Resistance','7,8',true],
