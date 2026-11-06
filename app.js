@@ -33,7 +33,7 @@
     {id:'valiance', title:'Valiance', grades:[7,8], active:true},
     {id:'engines-resistance', title:'Engines of Resistance', grades:[7,8], active:true},
     {id:'conquer-kraken', title:'To Conquer the Kraken', grades:[7,8], active:true},
-    {id:'snakebite', title:'Snakebite!', grades:[7,8], active:true}
+    {id:'snakebite', title:'Snakebite!', grades:[6,7,8], active:true}
   ];
 
   const app = document.getElementById('studentApp');
@@ -61,7 +61,8 @@
     const list = Array.isArray(pieces) ? [...pieces] : [];
     const required = [
       {id:'sleigh-ride', title:'Sleigh Ride', grades:[6,7,8], active:true},
-      {id:'wrath-mechanical', title:'Wrath of the Mechanical Monsters', grades:[6,7,8], active:true}
+      {id:'wrath-mechanical', title:'Wrath of the Mechanical Monsters', grades:[6,7,8], active:true},
+      {id:'snakebite', title:'Snakebite!', grades:[6,7,8], active:true}
     ];
     for (const piece of required) {
       const index = list.findIndex(p => p.id === piece.id || slug(p.title) === slug(piece.title));
